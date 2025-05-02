@@ -1,10 +1,12 @@
 Post curl GPU filtro Emboss
+
 curl -X POST http://localhost:5000/apply_emboss \
   -F image=@image.jpg \
   -F kernel_size=13 \
   -F use_cpu=false --output resultado.jpg
 
 Post curl GPU filtro cartoon
+
 curl -X POST http://localhost:5000/apply_filter \
   -F "image=@image.jpg" \
   -F "filter_type=cartoon_laplace" \
@@ -14,4 +16,14 @@ curl -X POST http://localhost:5000/apply_filter \
   -F "quant_step=64" \
   -F "threshold=20.0" \
   --output resultado_cartoon.jpg
+
+Post curl filtro deteccion de bordes
+
+curl -X POST http://localhost:5000/apply_filter \
+  -F "image=@image.jpg" \
+  -F "filter_type=edge_detect" \
+  -F "use_cpu=false" \
+  -F "kernel_size=9" \
+  --output resultado-bordes.jpg
+
 

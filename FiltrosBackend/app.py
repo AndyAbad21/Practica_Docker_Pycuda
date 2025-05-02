@@ -1,5 +1,6 @@
 import pycuda.driver as cuda
 from pycuda.compiler import SourceModule
+import pycuda.autoinit
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import numpy as np
@@ -8,16 +9,17 @@ from numba import njit, prange
 from io import BytesIO
 import time
 import math
+import traceback  # asegúrate de tenerlo al inicio
 
-# Inicializar Flask
+
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:4200"])
 cuda.init()
 
-# Constantes
 CHANNELS = 3
 PI = math.pi
 
+# ================= CUDA KERNELS =================
 cartoon_laplace_kernel_code = """
 #define CHANNELS 3
 __global__ void cartoonLaplaceKernel(unsigned char* input, unsigned char* output, float* lapMask,
@@ -45,6 +47,31 @@ __global__ void cartoonLaplaceKernel(unsigned char* input, unsigned char* output
 }
 """
 
+edge_detect_kernel_code = """
+__global__ void edgeDetectKernel(unsigned char *input, unsigned char *output, int width, int height, int channels, float *kernel, int ksize) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int k2 = ksize / 2;
+    if (x >= width || y >= height) return;
+
+    for (int c = 0; c < channels; ++c) {
+        float sum = 0.0f;
+        for (int ky = -k2; ky <= k2; ++ky) {
+            for (int kx = -k2; kx <= k2; ++kx) {
+                int xx = min(max(x + kx, 0), width - 1);
+                int yy = min(max(y + ky, 0), height - 1);
+                int img_idx = (yy * width + xx) * channels + c;
+                int k_idx = (ky + k2) * ksize + (kx + k2);
+                sum += input[img_idx] * kernel[k_idx];
+            }
+        }
+        int out_idx = (y * width + x) * channels + c;
+        output[out_idx] = min(max(int(sum), 0), 255);
+    }
+}
+"""
+
+# ================ KERNEL GENERATORS ================
 @njit
 def generate_log_filter(size, sigma):
     half = size // 2
@@ -57,6 +84,27 @@ def generate_log_filter(size, sigma):
             mask[j + half, i + half] = factor * (1.0 - (r2 / (2.0 * sigma * sigma))) * expo
     return mask
 
+@njit
+def generate_edge_kernel(size):
+    kernel = np.ones((size, size), dtype=np.float32)
+    center = size // 2
+    total = size * size
+    kernel[center, center] = -1.0 * (total - 1)
+    return kernel
+
+@njit
+def create_emboss_kernel(kernel_size):
+    kernel = np.zeros((kernel_size, kernel_size), dtype=np.float64)
+    half = kernel_size // 2
+    for y in range(kernel_size):
+        for x in range(kernel_size):
+            if x < half and y < half:
+                kernel[y, x] = -1
+            elif (x > half and y > half) or (x == half and y == half):
+                kernel[y, x] = 1
+    return kernel
+
+# ================ CPU FILTERS ================
 @njit(parallel=True)
 def cartoon_laplace_cpu_numba(input_img, lap_mask, width, height, mask_size, quant_step, threshold):
     output = np.empty_like(input_img)
@@ -77,16 +125,23 @@ def cartoon_laplace_cpu_numba(input_img, lap_mask, width, height, mask_size, qua
                 output[base * CHANNELS + c] = 0 if abs(lap) > threshold else quant
     return output
 
-def create_emboss_kernel(kernel_size):
-    kernel = np.zeros((kernel_size, kernel_size), dtype=np.float64)
-    half = kernel_size // 2
-    for y in range(kernel_size):
-        for x in range(kernel_size):
-            if x < half and y < half:
-                kernel[y, x] = -1
-            elif (x > half and y > half) or (x == half and y == half):
-                kernel[y, x] = 1
-    return kernel
+@njit(parallel=True)
+def edge_detect_cpu(image, kernel):
+    height, width, channels = image.shape
+    k_size = kernel.shape[0]
+    k_half = k_size // 2
+    output = np.empty_like(image)
+    for y in prange(height):
+        for x in range(width):
+            for c in range(channels):
+                sum = 0.0
+                for ky in range(-k_half, k_half + 1):
+                    for kx in range(-k_half, k_half + 1):
+                        px = min(max(x + kx, 0), width - 1)
+                        py = min(max(y + ky, 0), height - 1)
+                        sum += image[py, px, c] * kernel[ky + k_half, kx + k_half]
+                output[y, x, c] = min(max(int(sum), 0), 255)
+    return output
 
 @njit(parallel=True)
 def apply_convolution_cpu(image, kernel):
@@ -110,11 +165,12 @@ def normalize_image(image):
     max_val = np.max(image)
     return ((image - min_val) / (max_val - min_val) * 255).clip(0, 255).astype(np.uint8)
 
+# ================ FLASK ROUTE ================
 @app.route("/apply_filter", methods=["POST"])
 def apply_filter():
     try:
-        filter_type = request.form.get("filter_type", "emboss")
-        use_cpu = request.form.get("use_cpu", "false").lower() == "true"
+        filter_type = request.form.get("filter_type")
+        use_cpu = request.form.get("use_cpu", "true").lower() == "true"
         file = request.files["image"]
 
         if filter_type == "cartoon_laplace":
@@ -122,7 +178,6 @@ def apply_filter():
             sigma = float(request.form.get("sigma", 2.0))
             quant_step = int(request.form.get("quant_step", 64))
             threshold = float(request.form.get("threshold", 20.0))
-
             img = Image.open(file.stream).convert("RGB")
             np_img = np.array(img, dtype=np.uint8)
             flat = np_img.ravel()
@@ -131,37 +186,28 @@ def apply_filter():
 
             if use_cpu:
                 result = cartoon_laplace_cpu_numba(flat, lap_mask, width, height, mask_size, quant_step, threshold)
+                result = result.reshape((height, width, 3))
+
             else:
                 context = cuda.Device(0).make_context()
                 try:
                     mod = SourceModule(cartoon_laplace_kernel_code)
-                    cartoon_laplace_gpu = mod.get_function("cartoonLaplaceKernel")
-
+                    kernel_func = mod.get_function("cartoonLaplaceKernel")
                     result = np.empty_like(flat)
                     d_in = cuda.mem_alloc(flat.nbytes)
                     d_out = cuda.mem_alloc(result.nbytes)
                     d_mask = cuda.mem_alloc(lap_mask.nbytes)
-
                     cuda.memcpy_htod(d_in, flat)
                     cuda.memcpy_htod(d_mask, lap_mask.ravel())
-
                     block = (16, 16, 1)
                     grid = ((width + 15) // 16, (height + 15) // 16)
-
-                    cartoon_laplace_gpu(
-                        d_in, d_out, d_mask,
-                        np.int32(width), np.int32(height),
-                        np.int32(mask_size), np.int32(quant_step), np.float32(threshold),
-                        block=block, grid=grid
-                    )
+                    kernel_func(d_in, d_out, d_mask, np.int32(width), np.int32(height), np.int32(mask_size), np.int32(quant_step), np.float32(threshold), block=block, grid=grid)
                     cuda.memcpy_dtoh(result, d_out)
-                    d_in.free(); d_out.free(); d_mask.free()
+                    result = result.reshape((height, width, 3))
                 finally:
                     context.pop()
 
-            out_img = Image.fromarray(result.reshape((height, width, 3)).astype(np.uint8))
-
-        else:
+        elif filter_type == "emboss":
             kernel_size = int(request.form.get("kernel_size", 9))
             img = Image.open(file.stream).convert("L")
             image = np.array(img).astype(np.uint8)
@@ -177,10 +223,8 @@ def apply_filter():
                     d_image = cuda.mem_alloc(image.nbytes)
                     d_kernel = cuda.mem_alloc(kernel.nbytes)
                     d_result = cuda.mem_alloc(result.nbytes)
-
                     cuda.memcpy_htod(d_image, image)
                     cuda.memcpy_htod(d_kernel, kernel)
-
                     mod = SourceModule("""
                     __global__ void applyConvolutionGPU(unsigned char* image, double* kernel, double* result, int width, int height, int ksize) {
                         int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -204,18 +248,49 @@ def apply_filter():
                     func = mod.get_function("applyConvolutionGPU")
                     block = (16, 16, 1)
                     grid = ((img_width + 15) // 16, (img_height + 15) // 16)
-                    func(
-                        d_image, d_kernel, d_result,
-                        np.int32(img_width), np.int32(img_height), np.int32(kernel_size),
-                        block=block, grid=grid
-                    )
+                    func(d_image, d_kernel, d_result, np.int32(img_width), np.int32(img_height), np.int32(kernel_size), block=block, grid=grid)
                     cuda.memcpy_dtoh(result, d_result)
-                    d_image.free(); d_kernel.free(); d_result.free()
+                finally:
+                    context.pop()
+                result = normalize_image(result)
+
+        elif filter_type == "edge_detect":
+            kernel_size = int(request.form.get("kernel_size", 9))
+            img = Image.open(file.stream).convert("RGB")
+            np_img = np.array(img, dtype=np.uint8)
+            h, w, c = np_img.shape
+            kernel = generate_edge_kernel(kernel_size)
+
+            if use_cpu:
+                result = edge_detect_cpu(np_img, kernel)
+            else:
+                context = cuda.Device(0).make_context()
+                try:
+                    flat_img = np_img.ravel()
+                    result_flat = np.empty_like(flat_img)
+                    kernel_flat = kernel.ravel().astype(np.float32)
+                    mod = SourceModule(edge_detect_kernel_code)
+                    kernel_func = mod.get_function("edgeDetectKernel")
+                    d_input = cuda.mem_alloc(flat_img.nbytes)
+                    d_output = cuda.mem_alloc(result_flat.nbytes)
+                    d_kernel = cuda.mem_alloc(kernel_flat.nbytes)
+                    cuda.memcpy_htod(d_input, flat_img)
+                    cuda.memcpy_htod(d_kernel, kernel_flat)
+                    block = (16, 16, 1)
+                    grid = ((w + 15) // 16, (h + 15) // 16)
+                    kernel_func(d_input, d_output, np.int32(w), np.int32(h), np.int32(c), d_kernel, np.int32(kernel_size), block=block, grid=grid)
+                    cuda.memcpy_dtoh(result_flat, d_output)
+                    result = result_flat.reshape((h, w, c)).astype(np.uint8)
                 finally:
                     context.pop()
 
-            norm_img = normalize_image(result)
-            out_img = Image.fromarray(norm_img)
+        else:
+            return jsonify({"error": "Filtro no implementado."}), 400
+
+        if result.dtype != np.uint8:
+            result = normalize_image(result)  # escala y convierte a uint8
+
+        out_img = Image.fromarray(result)
 
         buffer = BytesIO()
         out_img.save(buffer, format="JPEG")
@@ -223,6 +298,8 @@ def apply_filter():
         return send_file(buffer, mimetype="image/jpeg", download_name="result.jpg")
 
     except Exception as e:
+        print("ERROR DETECTADO EN /apply_filter:")
+        print(traceback.format_exc())  # imprime el stack completo
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
