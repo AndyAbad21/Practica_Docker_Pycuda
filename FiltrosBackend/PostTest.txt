@@ -26,4 +26,3 @@ curl -X POST http://localhost:5000/apply_filter \
   -F "kernel_size=9" \
   --output resultado-bordes.jpg
 
-
