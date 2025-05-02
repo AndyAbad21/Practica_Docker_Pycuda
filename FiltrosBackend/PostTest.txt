@@ -1,4 +1,17 @@
+Post curl GPU filtro Emboss
 curl -X POST http://localhost:5000/apply_emboss \
   -F image=@image.jpg \
   -F kernel_size=13 \
   -F use_cpu=false --output resultado.jpg
+
+Post curl GPU filtro cartoon
+curl -X POST http://localhost:5000/apply_filter \
+  -F "image=@image.jpg" \
+  -F "filter_type=cartoon_laplace" \
+  -F "use_cpu=false" \
+  -F "mask_size=9" \
+  -F "sigma=2.0" \
+  -F "quant_step=64" \
+  -F "threshold=20.0" \
+  --output resultado_cartoon.jpg
+
