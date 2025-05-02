@@ -132,6 +132,18 @@ export class FilterProcessorComponent {
         this.cpuUsage = response.cpu_usage;
         this.imageDimensions = response.image_dimensions;
 
+        // Imprimir todos los valores en la consola
+        console.log('Tiempo Total de Ejecución:', this.executionTime);
+        console.log('Tiempo del Filtro:', this.filterExecutionTime);
+        console.log('Consumo de Memoria:', this.memoryUsage);
+        console.log('Tamaño de la Imagen Original:', this.originalImageSize);
+        console.log('Tamaño de la Imagen Procesada:', this.processedImageSize);
+        console.log('Dimensiones de la Imagen:', this.imageDimensions);
+        console.log('Total de Píxeles Procesados:', this.totalPixels);
+        console.log('GPU Utilizada:', this.gpuInfo);
+        console.log('Memoria GPU Usada:', this.gpuMemory);
+        console.log('Uso de la CPU:', this.cpuUsage);
+
         // Mostrar la imagen filtrada
         this.showFiltered = true;
       }, error => {

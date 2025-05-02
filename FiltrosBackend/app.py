@@ -12,6 +12,8 @@ import math
 import traceback  # asegúrate de tenerlo al inicio
 import psutil
 import os
+import json  # asegúrate de tener esta importación arriba
+import threading
 
 
 app = Flask(__name__)
@@ -20,6 +22,7 @@ cuda.init()
 
 CHANNELS = 3
 PI = math.pi
+cpu_usage_during_filter = []
 
 # ================= CUDA KERNELS =================
 cartoon_laplace_kernel_code = """
@@ -73,6 +76,11 @@ __global__ void edgeDetectKernel(unsigned char *input, unsigned char *output, in
 }
 """
 
+def monitor_cpu_usage(process, duration):
+    start = time.time()
+    while time.time() - start < duration:
+        cpu = process.cpu_percent(interval=0.2)
+        cpu_usage_during_filter.append(cpu)
 
 # ================ KERNEL GENERATORS ================
 @njit
@@ -113,6 +121,7 @@ def create_emboss_kernel(kernel_size):
 
 
 # ================ CPU FILTERS ================
+
 @njit(parallel=True)
 def cartoon_laplace_cpu_numba(
     input_img, lap_mask, width, height, mask_size, quant_step, threshold
@@ -193,6 +202,10 @@ gpu_memory = None
 @app.route("/apply_filter", methods=["POST"])
 def apply_filter():
     context = None  # Asegúrate de que la variable de contexto esté definida desde el principio
+    process = psutil.Process()
+    process.cpu_percent(interval=None)  # inicia la medición base
+    cpu_percent = None
+    
     try:
         # Definimos gpu_info y gpu_memory
         gpu_info = None
@@ -205,7 +218,6 @@ def apply_filter():
             context = cuda.Device(0).make_context()  # Asegúrate de crear un contexto de GPU válido
 
         start_time = time.time()  # Comienza a medir el tiempo total
-        process = psutil.Process()  # Obtenemos el proceso actual para medir la memoria
 
         filter_type = request.form.get("filter_type")
         file = request.files["image"]
@@ -217,6 +229,8 @@ def apply_filter():
 
         # Inicializar la variable result
         result = None
+
+        filter_execution_time = None
 
         # Fase de aplicación del filtro
         filter_start_time = time.time()  # Comienza a medir el tiempo para aplicar el filtro
@@ -231,10 +245,21 @@ def apply_filter():
             lap_mask = generate_log_filter(mask_size, sigma)
 
             if use_cpu:
+                # 🧠 Lanzar hilo para monitorear CPU durante la ejecución
+                monitor_thread = threading.Thread(target=monitor_cpu_usage, args=(process, 6))
+                monitor_thread.start()
+
                 result = cartoon_laplace_cpu_numba(
                     flat, lap_mask, width, height, mask_size, quant_step, threshold
                 )
                 result = result.reshape((height, width, 3))
+
+                monitor_thread.join()
+                # Calcular promedio de uso real de CPU
+                cpu_percent = sum(cpu_usage_during_filter) / len(cpu_usage_during_filter) if cpu_usage_during_filter else 0.0
+                logical_cores = psutil.cpu_count()
+                cpu_percent = cpu_percent / logical_cores
+
             else:
                 mod = SourceModule(cartoon_laplace_kernel_code)
                 kernel_func = mod.get_function("cartoonLaplaceKernel")
@@ -261,10 +286,14 @@ def apply_filter():
                 cuda.memcpy_dtoh(result, d_out)
                 result = result.reshape((height, width, 3))
 
-                # Obtener detalles de la GPU dentro del contexto
-                gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
-                gpu_info = cuda.Device(0).name()  # Información de la GPU
+                filter_end_time = time.time()
+                filter_execution_time = filter_end_time - filter_start_time
 
+                # Obtener detalles de la GPU dentro del contexto
+                if context:
+                    gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
+                    gpu_info = cuda.Device(0).name()  # Información de la GPU
+                    
         elif filter_type == "emboss":
             kernel_size = int(request.form.get("kernel_size", 9))
             img = Image.open(file.stream).convert("L")
@@ -272,7 +301,10 @@ def apply_filter():
             kernel = create_emboss_kernel(kernel_size)
 
             if use_cpu:
+                # Ejecuta el filtro *mientras* psutil mide
+                cpu_percent = psutil.cpu_percent(interval=None)  # inicializa
                 result = apply_convolution_cpu(image, kernel)
+                cpu_percent = psutil.cpu_percent(interval=1.0)  # mide uso DURANTE los próximos 1.0 segundos (cuando aún está trabajando)
             else:
                 img_height, img_width = image.shape
                 result = np.empty((img_height, img_width), dtype=np.float64)
@@ -316,7 +348,15 @@ def apply_filter():
                 )
                 cuda.memcpy_dtoh(result, d_result)
 
+            # Normalizar y calcular tiempo
             result = normalize_image(result)
+            filter_end_time = time.time()
+            filter_execution_time = filter_end_time - filter_start_time
+
+            # ✅ Asignar info GPU directamente (estás en bloque GPU)
+            if context:
+                gpu_memory = cuda.mem_get_info()
+                gpu_info = cuda.Device(0).name()
 
         elif filter_type == "edge_detect":
             kernel_size = int(request.form.get("kernel_size", 9))
@@ -326,7 +366,10 @@ def apply_filter():
             kernel = generate_edge_kernel(kernel_size)
 
             if use_cpu:
+                cpu_before = psutil.cpu_percent(interval=1.0)
                 result = edge_detect_cpu(np_img, kernel)
+                cpu_after = psutil.cpu_percent(interval=1.0)
+                cpu_percent = cpu_after
             else:
                 flat_img = np_img.ravel()
                 result_flat = np.empty_like(flat_img)
@@ -355,8 +398,12 @@ def apply_filter():
                 result = result_flat.reshape((h, w, c)).astype(np.uint8)
 
                 # Obtener detalles de la GPU dentro del contexto
-                gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
-                gpu_info = cuda.Device(0).name()  # Información de la GPU
+                if context:
+                    gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
+                    gpu_info = cuda.Device(0).name()  # Información de la GPU
+
+                filter_end_time = time.time()
+                filter_execution_time = filter_end_time - filter_start_time
 
         else:
             return jsonify({"error": "Filtro no implementado."}), 400
@@ -381,24 +428,34 @@ def apply_filter():
             execution_time = end_time - start_time  # Tiempo total de ejecución
             memory_usage = process.memory_info().rss / (1024 * 1024)  # Memoria en MB
 
-            # Obtener detalles de la CPU
-            cpu_percent = psutil.cpu_percent(interval=1)  # Porcentaje de uso de la CPU
+            # ✅ Medir uso real de CPU del proceso después de ejecutar la tarea
+            # cpu_percent = process.cpu_percent(interval=1.0)
+
+            # Tiempo total y memoria después de aplicar el filtro
+            end_time = time.time()
+            execution_time = end_time - start_time
+            memory_usage = process.memory_info().rss / (1024 * 1024)  # MB
+
 
             # Detalles adicionales a enviar
-            return jsonify(
-                {
-                    "execution_time": execution_time,
-                    "memory_usage": memory_usage,
-                    "original_image_size": original_size,
-                    "processed_image_size": processed_size,
-                    "image_dimensions": (width, height),  # Dimensiones de la imagen
-                    "total_pixels": total_pixels,  # Píxeles procesados
-                    "gpu_info": gpu_info,  # Información de la GPU
-                    "gpu_memory": gpu_memory,  # Memoria utilizada de la GPU
-                    "cpu_usage": cpu_percent,  # Uso de la CPU
-                    "image_url": f"/downloads/{os.path.basename(out_filename)}",  # URL de la imagen procesada
-                }
-            )
+            # Detalles adicionales a enviar
+            response_data = {
+                "execution_time": execution_time,
+                "filter_execution_time": filter_execution_time,  # asegúrate de incluirlo
+                "memory_usage": memory_usage,
+                "original_image_size": original_size,
+                "processed_image_size": processed_size,
+                "image_dimensions": (width, height),  # Dimensiones de la imagen
+                "total_pixels": total_pixels,  # Píxeles procesados
+                "gpu_info": gpu_info,  # Información de la GPU
+                "gpu_memory": gpu_memory,  # Memoria utilizada de la GPU
+                "cpu_usage": cpu_percent,  # Uso de la CPU
+                "image_url": f"/downloads/{os.path.basename(out_filename)}",  # URL de la imagen procesada
+            }
+
+            print("📦 Datos enviados al frontend:\n", json.dumps(response_data, indent=2, default=str))
+
+            return jsonify(response_data)
 
         else:
             return jsonify({"error": "No se pudo procesar la imagen."}), 500
@@ -411,6 +468,7 @@ def apply_filter():
     finally:
         if context:
             context.pop()  # Siempre liberar el contexto de GPU
+            context.detach()
 
 
 # Ruta para servir la imagen procesada
