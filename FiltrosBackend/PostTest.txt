@@ -1,0 +1,4 @@
+curl -X POST http://localhost:5000/apply_emboss \
+  -F image=@image.jpg \
+  -F kernel_size=13 \
+  -F use_cpu=false --output resultado.jpg
