@@ -1,0 +1,110 @@
+<head>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
+</head>
+
+<div class="app-layout">
+  <!-- Configuración de Filtros -->
+  <div class="filter-panel">
+    <h2 class="filter-title">🖼️ Filtros de Imagen</h2>
+
+    <form class="filter-form" (submit)="onSubmit($event)">
+
+      <div class="filter-config">
+        <!-- Selección de tipo de filtro -->
+        <div class="filter-options">
+          <!-- Subida de imagen -->
+          <div class="file-upload-group">
+            <p class="file-name" *ngIf="selectedFile">{{ selectedFile.name }}</p>
+            <label class="custom-file-label">
+              Seleccionar Imagen
+              <input type="file" (change)="onFileSelected($event)" required>
+            </label>
+          </div>
+
+          <!-- Selección del tipo de filtro -->
+          <label class="form-label">🎛️ Filtro:</label>
+          <div class="radio-list" *ngFor="let filter of filters">
+            <label>
+              <input type="radio" name="selectedFilter" [value]="filter.value" [(ngModel)]="selectedFilter" required>
+              {{ filter.label }}
+            </label>
+          </div>
+
+          <!-- CPU / GPU -->
+          <label class="form-label">⚙️ Procesamiento:</label>
+          <div class="radio-list">
+            <label><input type="radio" name="processingMode" [(ngModel)]="useCPU" [value]="true"> CPU</label>
+            <label><input type="radio" name="processingMode" [(ngModel)]="useCPU" [value]="false"> GPU</label>
+          </div>
+        </div>
+
+        <!-- Parámetros del filtro -->
+        <div class="filter-params">
+          <!-- Tamaño de kernel para Emboss y Edge -->
+          <div class="param-group" *ngIf="selectedFilter === 'emboss' || selectedFilter === 'cartoon' || selectedFilter === 'edges'">
+            <label class="form-label">🔧 Tamaño del Kernel:</label>
+            <input type="number" [(ngModel)]="kernelSize" name="kernelSize" (input)="validateKernelSize()" required class="input-number">
+            <p *ngIf="kernelWarning" class="input-warning">⚠ El kernel debe ser impar y mayor que 1</p>
+          </div>
+
+          <div class="param-group" *ngIf="selectedFilter === 'cartoon'">
+            <label class="form-label">📐 Sigma:</label>
+            <input type="number" [(ngModel)]="sigma" name="sigma" step="0.1" min="0.1" required class="input-number">
+
+            <label class="form-label">🎨 Quant Step:</label>
+            <input type="number" [(ngModel)]="quantStep" name="quantStep" min="1" required class="input-number">
+
+            <label class="form-label">🚫 Threshold:</label>
+            <input type="number" [(ngModel)]="threshold" name="threshold" step="0.1" min="0" required class="input-number">
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-submit">✨ Aplicar Filtro</button>
+    </form>
+  </div>
+
+  <!-- Vista de imagen -->
+  <div class="image-preview" *ngIf="previewImage || resultImage">
+    <div class="preview-box">
+      <h3>🖼️ Imagen {{ showFiltered ? 'Filtrada' : 'Original' }}:</h3>
+      <img [src]="showFiltered ? resultImage : previewImage" class="preview-img">
+      <div class="toggle-group">
+        <button class="btn-toggle-original" [ngClass]="{'btn-active': !showFiltered, 'btn-inactive': showFiltered}"
+          (click)="showFiltered = false" [disabled]="!previewImage">
+          ORIGINAL
+        </button>
+
+        <button class="btn-toggle-filter" [ngClass]="{'btn-active': showFiltered, 'btn-inactive': !showFiltered}"
+          (click)="showFiltered = true" [disabled]="!resultImage">
+          FILTRO
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="executionTime !== null">
+    <h4>Información de Ejecución</h4>
+    <p><strong>Tiempo Total de Ejecución:</strong> {{ executionTime }} segundos</p>
+    <p><strong>Tiempo del Filtro:</strong> {{ filterExecutionTime }} segundos</p>
+    <p><strong>Consumo de Memoria:</strong> {{ memoryUsage }} MB</p>
+    <p><strong>Tamaño de la Imagen Original:</strong> {{ originalImageSize }} bytes</p>
+    <p><strong>Tamaño de la Imagen Procesada:</strong> {{ processedImageSize }} bytes</p>
+  </div>
+  
+  <div *ngIf="gpuInfo && gpuMemory && cpuUsage !== null">
+    <h4>Detalles del Hardware</h4>
+    <p><strong>GPU Utilizada:</strong> {{ gpuInfo }}</p>
+    <p><strong>Memoria GPU Usada:</strong> {{ gpuMemory[0] / (1024 * 1024) }} MB (total: {{ gpuMemory[1] / (1024 * 1024) }} MB)</p>
+    <p><strong>Uso de la CPU:</strong> {{ cpuUsage }}%</p>
+  </div>
+  
+  <div *ngIf="imageDimensions && totalPixels !== null">
+    <h4>Características de la Imagen</h4>
+    <p><strong>Dimensiones de la Imagen:</strong> {{ imageDimensions[0] }} x {{ imageDimensions[1] }}</p>
+    <p><strong>Total de Píxeles Procesados:</strong> {{ totalPixels }}</p>
+  </div>
+  
+</div>
