@@ -10,6 +10,7 @@ import { FormsModule } from '@angular/forms';
   templateUrl: './filter-processor.component.html',
   styleUrls: ['./filter-processor.component.scss']
 })
+
 export class FilterProcessorComponent {
   // Variables para la imagen y el filtro
   previewImage: string | null = null;
@@ -20,6 +21,9 @@ export class FilterProcessorComponent {
   resultImage: string | null = null;
   kernelWarning = false;
   showFiltered = false;
+
+  // Estado de carga
+  isLoading: boolean = false;
 
   // Parámetros del filtro
   sigma: number = 2.0;
@@ -34,7 +38,7 @@ export class FilterProcessorComponent {
   processedImageSize: number | null = null;
   totalPixels: number | null = null;
   gpuInfo: string | null = null;
-  gpuMemory: any | null = null;
+  gpuMemory: [number, number] | null = null;
   cpuUsage: number | null = null;
   imageDimensions: [number, number] | null = null;
 
@@ -44,7 +48,10 @@ export class FilterProcessorComponent {
     { value: 'cartoon', label: 'Filtro Cartoon' }
   ];
 
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient) {
+    // Cargar imagen procesada y datos iniciales (por defecto)
+    // this.fetchDefaultData();
+  }  
 
   // Función para seleccionar la imagen
   onFileSelected(event: any) {
@@ -75,79 +82,84 @@ export class FilterProcessorComponent {
   // Función que maneja el envío del formulario y realiza la solicitud al backend
   onSubmit(event: Event) {
     event.preventDefault();
-
-    // Validar el tamaño del kernel
+  
+    // Validación
     if (this.kernelSize < 3 || this.kernelSize % 2 === 0) {
       this.kernelWarning = true;
       return;
     }
-
-    // Validar si se ha seleccionado una imagen
+  
     if (!this.selectedFile) {
       alert("Debes seleccionar una imagen.");
       return;
     }
-
-    // Crear un FormData para enviar la imagen y los parámetros del filtro al backend
+  
+    // Activar loader
+    this.isLoading = true;
+  
     const formData = new FormData();
     formData.append('image', this.selectedFile);
-
+  
     const backendFilterType =
       this.selectedFilter === 'cartoon'
         ? 'cartoon_laplace'
         : this.selectedFilter === 'edges'
           ? 'edge_detect'
           : this.selectedFilter;
-
+  
     formData.append('filter_type', backendFilterType);
     formData.append('use_cpu', this.useCPU.toString());
-
+  
     if (this.selectedFilter === 'emboss' || this.selectedFilter === 'edges') {
       formData.append('kernel_size', this.kernelSize.toString());
     }
-
+  
     if (this.selectedFilter === 'cartoon') {
       formData.append('mask_size', this.kernelSize.toString());
       formData.append('sigma', this.sigma.toString());
       formData.append('quant_step', this.quantStep.toString());
       formData.append('threshold', this.threshold.toString());
     }
-
-    // Realizar la solicitud POST al backend para procesar la imagen
-    this.http.post<any>(`http://localhost:5000/apply_filter`, formData, { responseType: 'json' })
-      .subscribe(response => {
-        // Usamos la URL de la imagen procesada devuelta en la respuesta
-        const timestamp = new Date().getTime();
-        this.resultImage = `http://localhost:5000${response.image_url}?t=${timestamp}`;  // Nueva URL con timestamp
-
-        // Mostrar la información adicional
-        this.executionTime = response.execution_time;
-        this.filterExecutionTime = response.filter_execution_time;
-        this.memoryUsage = response.memory_usage;
-        this.originalImageSize = response.original_image_size;
-        this.processedImageSize = response.processed_image_size;
-        this.totalPixels = response.total_pixels;
-        this.gpuInfo = response.gpu_info;
-        this.gpuMemory = response.gpu_memory;
-        this.cpuUsage = response.cpu_usage;
-        this.imageDimensions = response.image_dimensions;
-
-        // Imprimir todos los valores en la consola
-        console.log('Tiempo Total de Ejecución:', this.executionTime);
-        console.log('Tiempo del Filtro:', this.filterExecutionTime);
-        console.log('Consumo de Memoria:', this.memoryUsage);
-        console.log('Tamaño de la Imagen Original:', this.originalImageSize);
-        console.log('Tamaño de la Imagen Procesada:', this.processedImageSize);
-        console.log('Dimensiones de la Imagen:', this.imageDimensions);
-        console.log('Total de Píxeles Procesados:', this.totalPixels);
-        console.log('GPU Utilizada:', this.gpuInfo);
-        console.log('Memoria GPU Usada:', this.gpuMemory);
-        console.log('Uso de la CPU:', this.cpuUsage);
-
-        // Mostrar la imagen filtrada
-        this.showFiltered = true;
-      }, error => {
-        alert('Error al procesar la imagen: ' + (error.error?.error || error.message));
-      });
+  
+    this.http.post<any>('http://localhost:5000/apply_filter', formData).subscribe({
+      next: (res) => {
+        this.resultImage = 'http://localhost:5000' + res.image_url;
+        this.executionTime = res.execution_time;
+        this.filterExecutionTime = res.filter_execution_time;
+        this.memoryUsage = res.memory_usage;
+        this.originalImageSize = res.original_image_size;
+        this.processedImageSize = res.processed_image_size;
+        this.gpuInfo = res.gpu_info;
+        this.gpuMemory = res.gpu_memory;
+        this.cpuUsage = res.cpu_usage;
+        this.imageDimensions = res.image_dimensions;
+        this.totalPixels = res.total_pixels;
+      },
+      error: (err) => {
+        console.error('Error al aplicar filtro:', err);
+      },
+      complete: () => {
+        // Desactivar loader
+        this.isLoading = false;
+      }
+    });
   }
+
+  fetchDefaultData() {
+    this.resultImage = 'http://localhost:5000/downloads/processed_image.jpg';
+  
+    // Datos precargados como ejemplo
+    this.executionTime = 0.718;
+    this.filterExecutionTime = 0.604;
+    this.memoryUsage = 816.5;
+    this.originalImageSize = 6493281;
+    this.processedImageSize = 2737878;
+    this.imageDimensions = [8256, 5504];
+    this.totalPixels = 45441024;
+    this.gpuInfo = "NVIDIA GeForce RTX 4060 Laptop GPU";
+    this.gpuMemory = [7427653632, 8216903680];
+    this.cpuUsage = null;
+  }
+  
+  
 }

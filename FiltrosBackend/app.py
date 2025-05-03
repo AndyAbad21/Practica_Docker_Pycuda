@@ -301,10 +301,15 @@ def apply_filter():
             kernel = create_emboss_kernel(kernel_size)
 
             if use_cpu:
-                # Ejecuta el filtro *mientras* psutil mide
-                cpu_percent = psutil.cpu_percent(interval=None)  # inicializa
+                monitor_thread = threading.Thread(target=monitor_cpu_usage, args=(process, 6))
+                monitor_thread.start()
+
                 result = apply_convolution_cpu(image, kernel)
-                cpu_percent = psutil.cpu_percent(interval=1.0)  # mide uso DURANTE los próximos 1.0 segundos (cuando aún está trabajando)
+
+                monitor_thread.join()
+                cpu_percent = sum(cpu_usage_during_filter) / len(cpu_usage_during_filter) if cpu_usage_during_filter else 0.0
+                cpu_percent = cpu_percent / psutil.cpu_count()
+
             else:
                 img_height, img_width = image.shape
                 result = np.empty((img_height, img_width), dtype=np.float64)
@@ -366,10 +371,14 @@ def apply_filter():
             kernel = generate_edge_kernel(kernel_size)
 
             if use_cpu:
-                cpu_before = psutil.cpu_percent(interval=1.0)
+                monitor_thread = threading.Thread(target=monitor_cpu_usage, args=(process, 6))
+                monitor_thread.start()
+
                 result = edge_detect_cpu(np_img, kernel)
-                cpu_after = psutil.cpu_percent(interval=1.0)
-                cpu_percent = cpu_after
+
+                monitor_thread.join()
+                cpu_percent = sum(cpu_usage_during_filter) / len(cpu_usage_during_filter) if cpu_usage_during_filter else 0.0
+                cpu_percent = cpu_percent / psutil.cpu_count()
             else:
                 flat_img = np_img.ravel()
                 result_flat = np.empty_like(flat_img)
