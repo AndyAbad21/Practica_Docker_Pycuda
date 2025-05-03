@@ -1,0 +1,30 @@
+
+services:
+  filtros-backend:
+    build: ./FiltrosBackend
+    container_name: filtros-backend
+    ports:
+      - "5000:5000"
+    expose:
+      - "5000"
+    networks:
+      - filtros-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  filtros-frontend:
+    build: ./FiltrosFrontend
+    container_name: filtros-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - filtros-backend
+    networks:
+      - filtros-network
+
+networks:
+  filtros-network:
+    driver: bridge

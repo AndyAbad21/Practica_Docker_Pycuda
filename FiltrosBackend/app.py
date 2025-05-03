@@ -17,7 +17,7 @@ import threading
 
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:4200"])
+CORS(app, resources={r"/*": {"origins": "*"}})
 cuda.init()
 
 CHANNELS = 3

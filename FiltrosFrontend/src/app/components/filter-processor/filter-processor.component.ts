@@ -146,7 +146,7 @@ export class FilterProcessorComponent {
   }
 
   fetchDefaultData() {
-    this.resultImage = 'http://localhost:5000/downloads/processed_image.jpg';
+    this.resultImage = 'http://filtros-backend:5000/downloads/processed_image.jpg';
   
     // Datos precargados como ejemplo
     this.executionTime = 0.718;
