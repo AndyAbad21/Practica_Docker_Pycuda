@@ -51,7 +51,7 @@ export class FilterProcessorComponent {
   constructor(private http: HttpClient) {
     // Cargar imagen procesada y datos iniciales (por defecto)
     // this.fetchDefaultData();
-  }  
+  }
 
   // Función para seleccionar la imagen
   onFileSelected(event: any) {
@@ -82,45 +82,45 @@ export class FilterProcessorComponent {
   // Función que maneja el envío del formulario y realiza la solicitud al backend
   onSubmit(event: Event) {
     event.preventDefault();
-  
+
     // Validación
     if (this.kernelSize < 3 || this.kernelSize % 2 === 0) {
       this.kernelWarning = true;
       return;
     }
-  
+
     if (!this.selectedFile) {
       alert("Debes seleccionar una imagen.");
       return;
     }
-  
+
     // Activar loader
     this.isLoading = true;
-  
+
     const formData = new FormData();
     formData.append('image', this.selectedFile);
-  
+
     const backendFilterType =
       this.selectedFilter === 'cartoon'
         ? 'cartoon_laplace'
         : this.selectedFilter === 'edges'
           ? 'edge_detect'
           : this.selectedFilter;
-  
+
     formData.append('filter_type', backendFilterType);
     formData.append('use_cpu', this.useCPU.toString());
-  
+
     if (this.selectedFilter === 'emboss' || this.selectedFilter === 'edges') {
       formData.append('kernel_size', this.kernelSize.toString());
     }
-  
+
     if (this.selectedFilter === 'cartoon') {
       formData.append('mask_size', this.kernelSize.toString());
       formData.append('sigma', this.sigma.toString());
       formData.append('quant_step', this.quantStep.toString());
       formData.append('threshold', this.threshold.toString());
     }
-  
+
     this.http.post<any>('http://localhost:5000/apply_filter', formData).subscribe({
       next: (res) => {
         this.resultImage = 'http://localhost:5000' + res.image_url;
@@ -134,6 +134,9 @@ export class FilterProcessorComponent {
         this.cpuUsage = res.cpu_usage;
         this.imageDimensions = res.image_dimensions;
         this.totalPixels = res.total_pixels;
+
+        // ✅ Mostrar imagen filtrada automáticamente
+        this.showFiltered = true;
       },
       error: (err) => {
         console.error('Error al aplicar filtro:', err);
@@ -147,7 +150,7 @@ export class FilterProcessorComponent {
 
   fetchDefaultData() {
     this.resultImage = 'http://filtros-backend:5000/downloads/processed_image.jpg';
-  
+
     // Datos precargados como ejemplo
     this.executionTime = 0.718;
     this.filterExecutionTime = 0.604;
@@ -160,6 +163,6 @@ export class FilterProcessorComponent {
     this.gpuMemory = [7427653632, 8216903680];
     this.cpuUsage = null;
   }
-  
-  
+
+
 }
