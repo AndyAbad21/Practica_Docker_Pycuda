@@ -94,6 +94,10 @@ export class FilterProcessorComponent {
       return;
     }
 
+    // Limpiar el estado de la imagen procesada antes de enviar la solicitud
+    this.resultImage = null;  // Limpiar la imagen procesada
+    this.showFiltered = false;  // Restablecer la alternancia a "Original"
+
     // Activar loader
     this.isLoading = true;
 
@@ -123,7 +127,7 @@ export class FilterProcessorComponent {
 
     this.http.post<any>('http://localhost:5000/apply_filter', formData).subscribe({
       next: (res) => {
-        this.resultImage = 'http://localhost:5000' + res.image_url;
+        this.resultImage = 'http://localhost:5000' + res.image_url + '?timestamp=' + new Date().getTime();
         this.executionTime = res.execution_time;
         this.filterExecutionTime = res.filter_execution_time;
         this.memoryUsage = res.memory_usage;
@@ -147,22 +151,4 @@ export class FilterProcessorComponent {
       }
     });
   }
-
-  fetchDefaultData() {
-    this.resultImage = 'http://filtros-backend:5000/downloads/processed_image.jpg';
-
-    // Datos precargados como ejemplo
-    this.executionTime = 0.718;
-    this.filterExecutionTime = 0.604;
-    this.memoryUsage = 816.5;
-    this.originalImageSize = 6493281;
-    this.processedImageSize = 2737878;
-    this.imageDimensions = [8256, 5504];
-    this.totalPixels = 45441024;
-    this.gpuInfo = "NVIDIA GeForce RTX 4060 Laptop GPU";
-    this.gpuMemory = [7427653632, 8216903680];
-    this.cpuUsage = null;
-  }
-
-
 }
