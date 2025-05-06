@@ -42,28 +42,66 @@
           </div>
 
           <!-- Parámetros del filtro -->
-          <div class="filter-params">
-            <!-- Tamaño de kernel para Emboss, Cartoon y Edges -->
-            <div class="param-group"
-              *ngIf="selectedFilter === 'emboss' || selectedFilter === 'cartoon' || selectedFilter === 'edges'">
-              <label class="form-label">🔧 Tamaño del Kernel:</label>
-              <input type="number" [(ngModel)]="kernelSize" name="kernelSize" (input)="validateKernelSize()" required
-                class="input-number">
-              <p *ngIf="kernelWarning" class="input-warning">⚠ El kernel debe ser impar y mayor que 1</p>
+          <div class="filter-params" [ngClass]="{'two-columns': selectedFilter === 'cartoon'}">
+
+            <!-- Columna 1: común a todos -->
+            <div class="param-column">
+              <div class="param-group"
+                *ngIf="selectedFilter === 'emboss' || selectedFilter === 'cartoon' || selectedFilter === 'edges'">
+
+                <label class="form-label">🔧 Tamaño del Kernel:</label>
+                <input type="number" [(ngModel)]="kernelSize" name="kernelSize" (input)="validateKernelSize()" required
+                  class="input-number">
+                <p *ngIf="kernelWarning" class="input-warning">⚠ El kernel debe ser impar y mayor que 1</p>
+
+                <!-- Fila para Block X y Block Y -->
+                <div class="form-row">
+                  <div class="form-block">
+                    <label class="form-label">🧩 Block X (hilos):</label>
+                    <input type="number" [(ngModel)]="blockX" (ngModelChange)="updateGridValues()" name="blockX" min="1"
+                      required class="input-number">
+                  </div>
+
+                  <div class="form-block">
+                    <label class="form-label">🧩 Block Y (hilos):</label>
+                    <input type="number" [(ngModel)]="blockY" (ngModelChange)="updateGridValues()" name="blockY" min="1"
+                      required class="input-number">
+                  </div>
+                </div>
+
+                <!-- Fila para Grid X y Grid Y -->
+                <div class="form-row">
+                  <div class="form-grid">
+                    <label class="form-label">🧱 Grid X (bloques):</label>
+                    <input type="number" [(ngModel)]="gridX" name="gridX" min="1" required class="input-number">
+                  </div>
+
+                  <div class="form-grid">
+                    <label class="form-label">🧱 Grid Y (bloques):</label>
+                    <input type="number" [(ngModel)]="gridY" name="gridY" min="1" required class="input-number">
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div class="param-group" *ngIf="selectedFilter === 'cartoon'">
-              <label class="form-label">📐 Sigma:</label>
-              <input type="number" [(ngModel)]="sigma" name="sigma" step="0.1" min="0.1" required class="input-number">
+            <!-- Columna 2: solo para Filtro Cartoon -->
+            <div class="param-column" *ngIf="selectedFilter === 'cartoon'">
+              <div class="param-group">
+                <label class="form-label">📐 Sigma:</label>
+                <input type="number" [(ngModel)]="sigma" name="sigma" step="0.1" min="0.1" required
+                  class="input-number">
 
-              <label class="form-label">🎨 Quant Step:</label>
-              <input type="number" [(ngModel)]="quantStep" name="quantStep" min="1" required class="input-number">
+                <label class="form-label">🎨 Quant Step:</label>
+                <input type="number" [(ngModel)]="quantStep" name="quantStep" min="1" required class="input-number">
 
-              <label class="form-label">🚫 Threshold:</label>
-              <input type="number" [(ngModel)]="threshold" name="threshold" step="0.1" min="0" required
-                class="input-number">
+                <label class="form-label">🚫 Threshold:</label>
+                <input type="number" [(ngModel)]="threshold" name="threshold" step="0.1" min="0" required
+                  class="input-number">
+              </div>
             </div>
+
           </div>
+
         </div>
 
         <button type="submit" class="btn-submit">✨ Aplicar Filtro</button>
@@ -72,7 +110,7 @@
     <!-- *ngIf="previewImage !== null -->
     <div *ngIf="resultImage !== null" class="stats">
       <div class="icon-container">
-        
+
         <!-- Tiempo Total de Ejecución -->
         <div class="icon-item"><i class="bi bi-hourglass-split"></i>
           <p *ngIf="executionTime !== null"><strong>Tiempo Total de Ejecución:</strong> {{ executionTime.toFixed(2) }}

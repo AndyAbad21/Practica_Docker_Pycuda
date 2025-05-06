@@ -205,6 +205,8 @@ def apply_filter():
     process = psutil.Process()
     process.cpu_percent(interval=None)  # inicia la medición base
     cpu_percent = None
+    block = None
+    grid = None
     
     try:
         # Definimos gpu_info y gpu_memory
@@ -237,6 +239,10 @@ def apply_filter():
 
         if filter_type == "cartoon_laplace":
             mask_size = int(request.form.get("mask_size", 9))
+            block_x=int(request.form.get("block_x", 16))
+            block_y=int(request.form.get("block_y", 16))
+            grid_x=int(request.form.get("grid_x"))
+            grid_y=int(request.form.get("grid_y"))
             sigma = float(request.form.get("sigma", 2.0))
             quant_step = int(request.form.get("quant_step", 64))
             threshold = float(request.form.get("threshold", 20.0))
@@ -269,8 +275,9 @@ def apply_filter():
                 d_mask = cuda.mem_alloc(lap_mask.nbytes)
                 cuda.memcpy_htod(d_in, flat)
                 cuda.memcpy_htod(d_mask, lap_mask.ravel())
-                block = (16, 16, 1)
-                grid = ((width + 15) // 16, (height + 15) // 16)
+                block = (block_x, block_y, 1)
+                #grid =  ((width + block_x-1) // block_x, (height + block_y-1) // block_y)
+                grid = (grid_x, grid_y)
                 kernel_func(
                     d_in,
                     d_out,
@@ -286,16 +293,20 @@ def apply_filter():
                 cuda.memcpy_dtoh(result, d_out)
                 result = result.reshape((height, width, 3))
 
-                filter_end_time = time.time()
-                filter_execution_time = filter_end_time - filter_start_time
+            filter_end_time = time.time()
+            filter_execution_time = filter_end_time - filter_start_time
 
                 # Obtener detalles de la GPU dentro del contexto
-                if context:
-                    gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
-                    gpu_info = cuda.Device(0).name()  # Información de la GPU
+            if context:
+                gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
+                gpu_info = cuda.Device(0).name()  # Información de la GPU
                     
         elif filter_type == "emboss":
             kernel_size = int(request.form.get("kernel_size", 9))
+            block_x=int(request.form.get("block_x"))
+            block_y=int(request.form.get("block_y"))
+            grid_x=int(request.form.get("grid_x"))
+            grid_y=int(request.form.get("grid_y"))
             img = Image.open(file.stream).convert("L")
             image = np.array(img).astype(np.uint8)
             kernel = create_emboss_kernel(kernel_size)
@@ -339,8 +350,9 @@ def apply_filter():
                     }
                 """)
                 func = mod.get_function("applyConvolutionGPU")
-                block = (16, 16, 1)
-                grid = ((img_width + 15) // 16, (img_height + 15) // 16)
+                block = (block_x, block_y,1)
+                #grid = ((img_width + 15) // 16, (img_height + 15) // 16)
+                grid = (grid_x, grid_y)
                 func(
                     d_image,
                     d_kernel,
@@ -365,6 +377,10 @@ def apply_filter():
 
         elif filter_type == "edge_detect":
             kernel_size = int(request.form.get("kernel_size", 9))
+            block_x=int(request.form.get("block_x"))
+            block_y=int(request.form.get("block_y"))
+            grid_x=int(request.form.get("grid_x"))
+            grid_y=int(request.form.get("grid_y"))
             img = Image.open(file.stream).convert("RGB")
             np_img = np.array(img, dtype=np.uint8)
             h, w, c = np_img.shape
@@ -390,8 +406,9 @@ def apply_filter():
                 d_kernel = cuda.mem_alloc(kernel_flat.nbytes)
                 cuda.memcpy_htod(d_input, flat_img)
                 cuda.memcpy_htod(d_kernel, kernel_flat)
-                block = (16, 16, 1)
-                grid = ((w + 15) // 16, (h + 15) // 16)
+                block = (block_x, block_y, 1)
+                #grid = ((w + 15) // 16, (h + 15) // 16)
+                grid = (grid_x, grid_y)
                 kernel_func(
                     d_input,
                     d_output,
@@ -406,13 +423,13 @@ def apply_filter():
                 cuda.memcpy_dtoh(result_flat, d_output)
                 result = result_flat.reshape((h, w, c)).astype(np.uint8)
 
-                # Obtener detalles de la GPU dentro del contexto
-                if context:
-                    gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
-                    gpu_info = cuda.Device(0).name()  # Información de la GPU
+            # Obtener detalles de la GPU dentro del contexto
+            if context:
+                gpu_memory = cuda.mem_get_info()  # Memoria disponible y total de la GPU
+                gpu_info = cuda.Device(0).name()  # Información de la GPU
 
-                filter_end_time = time.time()
-                filter_execution_time = filter_end_time - filter_start_time
+            filter_end_time = time.time()
+            filter_execution_time = filter_end_time - filter_start_time
 
         else:
             return jsonify({"error": "Filtro no implementado."}), 400
@@ -449,6 +466,8 @@ def apply_filter():
             # Detalles adicionales a enviar
             # Detalles adicionales a enviar
             response_data = {
+                "blocks": block,
+                "grid": grid,
                 "execution_time": execution_time,
                 "filter_execution_time": filter_execution_time,  # asegúrate de incluirlo
                 "memory_usage": memory_usage,

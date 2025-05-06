@@ -42,6 +42,23 @@ body {
     margin: auto 2vw auto 1vw;
 }
 
+.filter-params {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 90%;
+}
+
+.filter-params.two-columns {
+    flex-direction: row;
+}
+
+.param-column {
+    flex: 1;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
 /* ===================== */
 /*     FORM ELEMENTS     */
 /* ===================== */
@@ -65,18 +82,32 @@ body {
 
 .filter-options {
     flex-direction: column;
-    width: 60%;
+    width: 40%;
 }
 
 .filter-params {
     display: flex;
     flex-direction: column;
-    width: 40%;
+    width: 80%;
 }
 
 .form-label {
     font-weight: 600;
     display: block;
+}
+
+.form-row {
+    display: flex;
+    justify-content: space-between;
+    /* Espacio entre los elementos */
+    gap: 20px;
+    /* Espacio entre los campos */
+}
+
+.form-block,
+.form-grid {
+    flex: .4;
+    /* Cada elemento ocupa el mismo espacio */
 }
 
 .input-file,
@@ -167,7 +198,8 @@ body {
     background: linear-gradient(145deg, #3a3a3a, #4b4b4b);
     border-radius: 15px;
     padding: 0 20px;
-    flex: 0 0 calc(20% - 15px); /* Ajusté el margen en el cálculo */
+    flex: 0 0 calc(20% - 15px);
+    /* Ajusté el margen en el cálculo */
     text-align: center;
     font-size: 50px;
     color: #3cff00;

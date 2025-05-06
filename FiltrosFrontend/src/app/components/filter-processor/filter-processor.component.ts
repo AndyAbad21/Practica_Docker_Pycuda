@@ -17,6 +17,10 @@ export class FilterProcessorComponent {
   selectedFile: File | null = null;
   selectedFilter = 'emboss';
   kernelSize = 9;
+  blockX = 16;
+  blockY = 16;
+  gridX = 0;
+  gridY = 0;
   useCPU = false;
   resultImage: string | null = null;
   kernelWarning = false;
@@ -53,6 +57,16 @@ export class FilterProcessorComponent {
     // this.fetchDefaultData();
   }
 
+  updateGridValues(){
+    const width = this.imageDimensions?.[0];
+    const height = this.imageDimensions?.[1];
+
+    if (width && height) {
+      this.gridX = Math.ceil((width + this.blockX - 1) / this.blockX);
+      this.gridY = Math.ceil((height + this.blockY - 1) / this.blockY);
+    }
+  }
+
   // Función para seleccionar la imagen
   onFileSelected(event: any) {
     this.selectedFile = event.target.files[0];
@@ -60,7 +74,19 @@ export class FilterProcessorComponent {
     if (this.selectedFile) {
       const reader = new FileReader();
       reader.onload = (e: any) => {
-        this.previewImage = e.target.result;
+        const image = new Image();
+        image.onload = () => {
+          const width = image.width;
+          const height = image.height;
+
+          this.imageDimensions = [width,height];
+
+          this.gridX = Math.ceil((width+this.blockX-1)/this.blockX);
+          this.gridY = Math.ceil((height+this.blockY-1)/this.blockY);
+        
+          this.previewImage = e.target.result;
+        };
+        image.src = e.target.result;
       };
       reader.readAsDataURL(this.selectedFile);
     } else {
@@ -113,6 +139,12 @@ export class FilterProcessorComponent {
 
     formData.append('filter_type', backendFilterType);
     formData.append('use_cpu', this.useCPU.toString());
+
+    // ⬇️ Agregar los nuevos parámetros de hilos y bloques
+    formData.append('block_x', this.blockX.toString());
+    formData.append('block_y', this.blockY.toString());
+    formData.append('grid_x', this.gridX.toString());
+    formData.append('grid_y', this.gridY.toString());
 
     if (this.selectedFilter === 'emboss' || this.selectedFilter === 'edges') {
       formData.append('kernel_size', this.kernelSize.toString());
